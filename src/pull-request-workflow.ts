@@ -33,7 +33,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
     }
     const {githubUserNames, githubSlackUserMapper, remindAfter} =
       await getFileContent()
-
+  
     if (eventName === GithubEventNames.SCHEDULE) {
       await pullRequestReminder(
         {githubUserNames, githubSlackUserMapper, remindAfter},
@@ -45,14 +45,13 @@ export const PullRequestWorkflow = async (): Promise<void> => {
         payload.action === 'opened' &&
         payload.pull_request
       ) {
-        const [firstReviewer, secondReviewer] = await requestTwoReviewers(
-          [actor],
-          githubUserNames,
-          {
-            owner: repo.owner,
-            repo: repo.repo,
-            pull_number: payload.pull_request.number
-          }
+        const requestedReviewers = payload.pull_request.requested_reviewers
+        if (!requestedReviewers || requestedReviewers.length === 0) {
+          core.warning('PR 작성자가 지정한 리뷰어가 없습니다.')
+          return
+        }
+        const reviewerLogins = requestedReviewers.map(
+          (reviewer: { login: string }) => reviewer.login
         )
         await Slack.postMessage({
           channel: core.getInput('slack-channel-id'),
@@ -60,8 +59,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
           blocks: generatePullRequestOpenedMessage(
             github.context,
             githubSlackUserMapper,
-            firstReviewer,
-            secondReviewer
+            reviewerLogins,
           )
         })
       } else {
@@ -90,7 +88,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
             )
           })
         }
-
+  
         if (
           eventName === GithubEventNames.PULL_REQUEST &&
           payload.action === 'closed' &&
@@ -105,7 +103,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
             )
           })
         }
-
+  
         if (
           eventName === GithubEventNames.PULL_REQUEST &&
           payload.action === 'synchronize' &&
@@ -122,7 +120,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
             })
           }
         }
-
+  
         if (
           eventName === GithubEventNames.PULL_REQUEST &&
           payload.action === 'review_requested' &&
@@ -137,7 +135,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
             )
           })
         }
-
+  
         if (
           eventName === GithubEventNames.ISSUE_COMMENT &&
           payload.action === 'created'
@@ -181,7 +179,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
                 pull_number: payload.pull_request?.number
               }
             )
-
+  
           core.info(
             JSON.stringify({
               APPROVED,
@@ -190,7 +188,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
               COMMENTED
             })
           )
-
+  
           if (payload.review?.state.toUpperCase() === ReviewStates.APPROVED) {
             if (APPROVED.length === 1) {
               await Slack.postMessage({
@@ -203,7 +201,7 @@ export const PullRequestWorkflow = async (): Promise<void> => {
                 )
               })
             }
-
+  
             if (APPROVED.length >= 2 && CHANGES_REQUESTED.length === 0) {
               await Slack.postMessage({
                 channel: core.getInput('slack-channel-id'),
